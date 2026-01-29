@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>인용 이미지 생성기</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>인용 이미지 생성기</h1>
+            <p class="subtitle">대사나 작품 인용을 이미지로 만들어 공유하세요</p>
+        </header>
+
+        <main>
+            <div class="editor-panel">
+                <section class="input-section">
+                    <h2>텍스트</h2>
+                    <div class="form-group">
+                        <label for="quote-text">인용문</label>
+                        <textarea id="quote-text" placeholder="인용할 문장을 입력하세요...">삶이 있는 한 희망은 있다.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="source-text">출처 (작품명)</label>
+                        <input type="text" id="source-text" placeholder="작품명, 책 제목 등" value="돈키호테">
+                    </div>
+                    <div class="form-group">
+                        <label for="author-text">저자/화자</label>
+                        <input type="text" id="author-text" placeholder="저자 또는 화자 이름" value="미겔 데 세르반테스">
+                    </div>
+                </section>
+
+                <section class="style-section">
+                    <h2>스타일</h2>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bg-type">배경 유형</label>
+                            <select id="bg-type">
+                                <option value="solid">단색</option>
+                                <option value="gradient" selected>그라데이션</option>
+                                <option value="image">이미지</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="gradient-direction">방향</label>
+                            <select id="gradient-direction">
+                                <option value="to bottom">↓ 위에서 아래</option>
+                                <option value="to right">→ 왼쪽에서 오른쪽</option>
+                                <option value="to bottom right" selected>↘ 대각선</option>
+                                <option value="radial">○ 원형</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="bg-image-group" style="display: none;">
+                        <label for="bg-image">배경 이미지</label>
+                        <div class="file-upload-wrapper">
+                            <input type="file" id="bg-image" accept="image/*">
+                            <label for="bg-image" class="file-upload-btn">이미지 선택</label>
+                            <span id="bg-image-name" class="file-name">선택된 파일 없음</span>
+                        </div>
+                        <div class="form-row" style="margin-top: 0.75rem;">
+                            <div class="form-group">
+                                <label for="bg-overlay-opacity">오버레이 투명도</label>
+                                <input type="range" id="bg-overlay-opacity" min="0" max="100" value="50">
+                                <span id="bg-overlay-opacity-value">50%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bg-color1">배경색 1</label>
+                            <input type="color" id="bg-color1" value="#1a1a2e">
+                        </div>
+                        <div class="form-group">
+                            <label for="bg-color2">배경색 2</label>
+                            <input type="color" id="bg-color2" value="#16213e">
+                        </div>
+                        <div class="form-group">
+                            <label for="text-color">텍스트 색상</label>
+                            <input type="color" id="text-color" value="#ffffff">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="font-family">폰트</label>
+                            <select id="font-family">
+                                <option value="Noto Sans KR" selected>Noto Sans KR</option>
+                                <option value="Noto Serif KR">Noto Serif KR</option>
+                                <option value="Nanum Gothic">나눔고딕</option>
+                                <option value="Nanum Myeongjo">나눔명조</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="font-size">인용문 크기</label>
+                            <input type="range" id="font-size" min="20" max="60" value="32">
+                            <span id="font-size-value">32px</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="custom-font">커스텀 폰트 업로드</label>
+                        <div class="file-upload-wrapper">
+                            <input type="file" id="custom-font" accept=".ttf,.otf,.woff,.woff2">
+                            <label for="custom-font" class="file-upload-btn">폰트 파일 선택</label>
+                            <span id="custom-font-name" class="file-name">선택된 파일 없음</span>
+                        </div>
+                        <small class="form-hint">TTF, OTF, WOFF, WOFF2 파일 지원</small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="canvas-size">이미지 크기</label>
+                            <select id="canvas-size">
+                                <option value="1080x1080" selected>1080×1080 (정사각형)</option>
+                                <option value="1200x630">1200×630 (OG 이미지)</option>
+                                <option value="1280x720">1280×720 (16:9)</option>
+                                <option value="800x600">800×600 (4:3)</option>
+                                <option value="600x800">600×800 (세로형)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="padding">패딩</label>
+                            <input type="range" id="padding" min="40" max="150" value="80">
+                            <span id="padding-value">80px</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="text-align">텍스트 정렬</label>
+                        <div class="button-group">
+                            <button type="button" class="align-btn" data-align="left">왼쪽</button>
+                            <button type="button" class="align-btn active" data-align="center">가운데</button>
+                            <button type="button" class="align-btn" data-align="right">오른쪽</button>
+                            <button type="button" class="align-btn" data-align="justify">양쪽</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="show-quotemark" checked>
+                            인용 부호("") 표시
+                        </label>
+                    </div>
+                </section>
+
+                <section class="preset-section">
+                    <h2>프리셋</h2>
+                    <div class="preset-grid">
+                        <button class="preset-btn" data-preset="dark">다크</button>
+                        <button class="preset-btn" data-preset="light">라이트</button>
+                        <button class="preset-btn" data-preset="sunset">선셋</button>
+                        <button class="preset-btn" data-preset="ocean">오션</button>
+                        <button class="preset-btn" data-preset="forest">포레스트</button>
+                        <button class="preset-btn" data-preset="wine">와인</button>
+                    </div>
+                </section>
+            </div>
+
+            <div class="preview-panel">
+                <h2>미리보기</h2>
+                <div class="canvas-wrapper">
+                    <canvas id="preview-canvas"></canvas>
+                </div>
+                <div class="action-buttons">
+                    <button id="download-btn" class="primary-btn">PNG 다운로드</button>
+                    <button id="copy-btn" class="secondary-btn">클립보드에 복사</button>
+                </div>
+
+                <div class="share-section">
+                    <h3>Fediverse에 공유</h3>
+                    <div id="accounts-list" class="accounts-list"></div>
+                    <button id="add-account-btn" class="add-account-btn">+ 계정 추가</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Mastodon/Misskey 계정을 추가하면 바로 공유할 수 있습니다.</p>
+        </footer>
+
+        <!-- Add Account Modal -->
+        <div id="add-account-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>계정 추가</h3>
+                    <button class="modal-close" data-modal="add-account-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">Mastodon 또는 Misskey 인스턴스 주소를 입력하세요.</p>
+                    <div class="form-group">
+                        <label for="instance-input">인스턴스 주소</label>
+                        <input type="text" id="instance-input" placeholder="예: mastodon.social, misskey.io">
+                    </div>
+                    <div id="auth-error" class="error-message"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="secondary-btn" data-modal="add-account-modal">취소</button>
+                    <button id="start-auth-btn" class="primary-btn">로그인</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Share Modal -->
+        <div id="share-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>공유하기</h3>
+                    <button class="modal-close" data-modal="share-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="share-account-info" id="share-account-info"></div>
+                    <div class="form-group">
+                        <label for="share-alt-text">대체 텍스트 (접근성)</label>
+                        <textarea id="share-alt-text" placeholder="이미지 설명 (자동 생성됨)"></textarea>
+                        <small class="form-hint">시각장애인 사용자를 위한 이미지 설명입니다.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="share-text">본문 (선택)</label>
+                        <textarea id="share-text" placeholder="이미지와 함께 게시할 텍스트..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="share-visibility">공개 범위</label>
+                        <select id="share-visibility">
+                            <option value="public">공개</option>
+                            <option value="unlisted">미등록 (타임라인에 표시 안 함)</option>
+                            <option value="private">팔로워 전용</option>
+                            <option value="direct">다이렉트</option>
+                        </select>
+                    </div>
+                    <div id="share-error" class="error-message"></div>
+                    <div id="share-success" class="success-message"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="secondary-btn" data-modal="share-modal">취소</button>
+                    <button id="do-share-btn" class="primary-btn">공유</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="auth.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
