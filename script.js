@@ -33,6 +33,7 @@ const bgOverlayOpacityValue = document.getElementById('bg-overlay-opacity-value'
 
 const downloadBtn = document.getElementById('download-btn');
 const copyBtn = document.getElementById('copy-btn');
+const themeToggle = document.getElementById('theme-toggle');
 
 // State
 let textAlign = 'center';
@@ -88,7 +89,27 @@ const presets = {
 // Initialize
 function init() {
     setupEventListeners();
+    loadTheme();
     render();
+}
+
+// Theme management
+function loadTheme() {
+    const savedTheme = localStorage.getItem('inyong_theme');
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+    } else if (savedTheme === null) {
+        // Check system preference
+        if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+            document.body.classList.add('light-mode');
+        }
+    }
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('light-mode');
+    const isLight = document.body.classList.contains('light-mode');
+    localStorage.setItem('inyong_theme', isLight ? 'light' : 'dark');
 }
 
 function setupEventListeners() {
@@ -153,6 +174,9 @@ function setupEventListeners() {
     // Action buttons
     downloadBtn.addEventListener('click', downloadImage);
     copyBtn.addEventListener('click', copyToClipboard);
+
+    // Theme toggle
+    themeToggle.addEventListener('click', toggleTheme);
 }
 
 function applyPreset(presetName) {
