@@ -610,7 +610,7 @@ function renderAccounts() {
 
     accountsList.innerHTML = accounts.map(account => `
         <div class="account-item" data-instance="${account.instance}">
-            <img class="account-avatar" src="${account.avatar || ''}" alt=""
+            <img class="account-avatar" src="${escapeAttribute(sanitizeAvatarUrl(account.avatar))}" alt=""
                  onerror="this.style.display='none'">
             <div class="account-info">
                 <div class="account-name">${escapeHtml(account.displayName)}</div>
@@ -642,6 +642,21 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttribute(value) {
+    return escapeHtml(String(value ?? ''));
+}
+
+function sanitizeAvatarUrl(url) {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url, location.origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {}
+    return '';
 }
 
 async function handleStartAuth() {
@@ -676,9 +691,10 @@ function openShareModal(instance) {
     if (!account) return;
 
     currentShareInstance = instance;
+    const avatarUrl = sanitizeAvatarUrl(account.avatar);
 
     shareAccountInfo.innerHTML = `
-        <img class="account-avatar" src="${account.avatar || ''}" alt=""
+        <img class="account-avatar" src="${escapeAttribute(avatarUrl)}" alt=""
              onerror="this.style.display='none'">
         <div class="account-info">
             <div class="account-name">${escapeHtml(account.displayName)}</div>
