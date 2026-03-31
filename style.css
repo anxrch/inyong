@@ -656,6 +656,19 @@ footer {
     color: var(--accent);
 }
 
+.account-action-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.account-action-row .secondary-btn {
+    width: auto;
+    padding: 0.75rem 0.9rem;
+    white-space: nowrap;
+}
+
 .no-accounts {
     text-align: center;
     padding: 1rem;

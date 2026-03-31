@@ -521,6 +521,7 @@ async function copyToClipboard() {
 
 const accountsList = document.getElementById('accounts-list');
 const addAccountBtn = document.getElementById('add-account-btn');
+const clearAccountsBtn = document.getElementById('clear-accounts-btn');
 const addAccountModal = document.getElementById('add-account-modal');
 const shareModal = document.getElementById('share-modal');
 const instanceInput = document.getElementById('instance-input');
@@ -542,6 +543,7 @@ function setupShareListeners() {
 
     // Start auth button
     startAuthBtn.addEventListener('click', handleStartAuth);
+    clearAccountsBtn.addEventListener('click', handleClearAccounts);
 
     // Enter key on instance input
     instanceInput.addEventListener('keydown', (e) => {
@@ -573,6 +575,14 @@ function setupShareListeners() {
                 closeModal(modal.id);
             });
         }
+    });
+}
+
+function applyAvatarFallback(container) {
+    container.querySelectorAll('.account-avatar').forEach(img => {
+        img.addEventListener('error', () => {
+            img.style.display = 'none';
+        }, { once: true });
     });
 }
 
@@ -610,8 +620,7 @@ function renderAccounts() {
 
     accountsList.innerHTML = accounts.map(account => `
         <div class="account-item" data-instance="${account.instance}">
-            <img class="account-avatar" src="${account.avatar || ''}" alt=""
-                 onerror="this.style.display='none'">
+            <img class="account-avatar" src="${escapeAttribute(sanitizeAvatarUrl(account.avatar))}" alt="">
             <div class="account-info">
                 <div class="account-name">${escapeHtml(account.displayName)}</div>
                 <div class="account-instance">@${escapeHtml(account.username)}@${escapeHtml(account.instance)}</div>
@@ -624,6 +633,8 @@ function renderAccounts() {
     `).join('');
 
     // Add event listeners
+    applyAvatarFallback(accountsList);
+
     accountsList.querySelectorAll('.share-btn').forEach(btn => {
         btn.addEventListener('click', () => openShareModal(btn.dataset.instance));
     });
@@ -642,6 +653,21 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttribute(value) {
+    return escapeHtml(String(value ?? ''));
+}
+
+function sanitizeAvatarUrl(url) {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url, location.origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {}
+    return '';
 }
 
 async function handleStartAuth() {
@@ -676,15 +702,16 @@ function openShareModal(instance) {
     if (!account) return;
 
     currentShareInstance = instance;
+    const avatarUrl = sanitizeAvatarUrl(account.avatar);
 
     shareAccountInfo.innerHTML = `
-        <img class="account-avatar" src="${account.avatar || ''}" alt=""
-             onerror="this.style.display='none'">
+        <img class="account-avatar" src="${escapeAttribute(avatarUrl)}" alt="">
         <div class="account-info">
             <div class="account-name">${escapeHtml(account.displayName)}</div>
             <div class="account-instance">@${escapeHtml(account.username)}@${escapeHtml(account.instance)}</div>
         </div>
     `;
+    applyAvatarFallback(shareAccountInfo);
 
     shareError.classList.remove('visible');
     shareSuccess.classList.remove('visible');
@@ -693,6 +720,15 @@ function openShareModal(instance) {
     shareAltText.value = generateAltText();
 
     openModal('share-modal');
+}
+
+function handleClearAccounts() {
+    if (!confirm('현재 브라우저 세션의 로그인 정보를 모두 삭제할까요?')) return;
+
+    FediAuth.clearAccounts();
+    currentShareInstance = null;
+    renderAccounts();
+    alert('세션 계정 정보가 삭제되었습니다.');
 }
 
 async function handleShare() {

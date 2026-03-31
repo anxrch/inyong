@@ -4,20 +4,42 @@
  */
 
 const STORAGE_KEY = 'inyong_accounts';
+const LEGACY_STORAGE_KEY = 'inyong_accounts_legacy';
+const OAUTH_PENDING_KEY = 'oauth_pending';
+const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000;
 const APP_NAME = '인용 이미지 생성기';
 const APP_WEBSITE = location.origin;
 
 // Storage helpers
 function getAccounts() {
+    // Keep account tokens only for current browser session.
+    // If legacy localStorage data exists, migrate once and clear it.
     try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        const sessionAccounts = JSON.parse(sessionStorage.getItem(STORAGE_KEY)) || [];
+        if (sessionAccounts.length > 0) return sessionAccounts;
+    } catch {}
+
+    try {
+        const legacyAccounts = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        if (legacyAccounts.length > 0) {
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(legacyAccounts));
+            localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ migratedAt: Date.now() }));
+            localStorage.removeItem(STORAGE_KEY);
+            return legacyAccounts;
+        }
     } catch {
         return [];
     }
+
+    return [];
 }
 
 function saveAccounts(accounts) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+}
+
+function clearAccounts() {
+    sessionStorage.removeItem(STORAGE_KEY);
 }
 
 function addAccount(account) {
@@ -70,6 +92,75 @@ async function detectServerType(instance) {
     throw new Error('서버 유형을 감지할 수 없습니다. 올바른 인스턴스 주소인지 확인하세요.');
 }
 
+function normalizeInstance(input) {
+    if (typeof input !== 'string') throw new Error('인스턴스 주소를 입력하세요.');
+
+    let value = input.trim();
+    if (!value) throw new Error('인스턴스 주소를 입력하세요.');
+
+    if (!/^https?:\/\//i.test(value)) {
+        value = `https://${value}`;
+    }
+
+    let parsed;
+    try {
+        parsed = new URL(value);
+    } catch {
+        throw new Error('올바른 인스턴스 주소를 입력하세요.');
+    }
+
+    if (parsed.protocol !== 'https:') {
+        throw new Error('보안을 위해 HTTPS 인스턴스만 지원합니다.');
+    }
+
+    if (!parsed.hostname) {
+        throw new Error('올바른 인스턴스 주소를 입력하세요.');
+    }
+
+    return parsed.host.toLowerCase();
+}
+
+function randomBase64Url(bytes = 32) {
+    const random = new Uint8Array(bytes);
+    crypto.getRandomValues(random);
+    return btoa(String.fromCharCode(...random))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
+function setOAuthPending(data) {
+    sessionStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
+        ...data,
+        createdAt: Date.now()
+    }));
+}
+
+function getOAuthPending() {
+    const pending = JSON.parse(sessionStorage.getItem(OAUTH_PENDING_KEY));
+    if (!pending || !pending.createdAt) return null;
+
+    if ((Date.now() - pending.createdAt) > OAUTH_PENDING_TTL_MS) {
+        sessionStorage.removeItem(OAUTH_PENDING_KEY);
+        return null;
+    }
+
+    return pending;
+}
+
+function clearOAuthPending() {
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+}
+
+async function sha256Base64Url(input) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    const bytes = new Uint8Array(digest);
+    return btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
 // ============ Mastodon OAuth ============
 
 async function mastodonRegisterApp(instance) {
@@ -97,15 +188,20 @@ async function mastodonRegisterApp(instance) {
 async function mastodonStartAuth(instance) {
     const app = await mastodonRegisterApp(instance);
     const redirectUri = `${location.origin}${location.pathname}`;
+    const state = randomBase64Url(32);
+    const codeVerifier = randomBase64Url(64);
+    const codeChallenge = await sha256Base64Url(codeVerifier);
 
     // Store app info for later
-    sessionStorage.setItem('oauth_pending', JSON.stringify({
+    setOAuthPending({
         type: 'mastodon',
         instance,
         clientId: app.client_id,
         clientSecret: app.client_secret,
-        redirectUri
-    }));
+        redirectUri,
+        state,
+        codeVerifier
+    });
 
     // Redirect to authorization
     const authUrl = new URL(`https://${instance}/oauth/authorize`);
@@ -113,30 +209,52 @@ async function mastodonStartAuth(instance) {
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', 'read write:media write:statuses');
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
 
     location.href = authUrl.toString();
 }
 
-async function mastodonCompleteAuth(code) {
-    const pending = JSON.parse(sessionStorage.getItem('oauth_pending'));
+async function mastodonCompleteAuth(code, state) {
+    const pending = getOAuthPending();
     if (!pending || pending.type !== 'mastodon') {
         throw new Error('인증 세션을 찾을 수 없습니다');
     }
+    if (!state || pending.state !== state) {
+        clearOAuthPending();
+        throw new Error('OAuth state 검증에 실패했습니다. 다시 로그인해 주세요.');
+    }
 
-    const res = await fetch(`https://${pending.instance}/oauth/token`, {
+    // Try public-client PKCE first, then fall back to client_secret for compatibility.
+    const tokenPayloadBase = {
+        client_id: pending.clientId,
+        redirect_uri: pending.redirectUri,
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: pending.codeVerifier,
+        scope: 'read write:media write:statuses'
+    };
+
+    let res = await fetch(`https://${pending.instance}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            client_id: pending.clientId,
-            client_secret: pending.clientSecret,
-            redirect_uri: pending.redirectUri,
-            grant_type: 'authorization_code',
-            code,
-            scope: 'read write:media write:statuses'
-        })
+        body: JSON.stringify(tokenPayloadBase)
     });
 
+    if (!res.ok && pending.clientSecret) {
+        res = await fetch(`https://${pending.instance}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...tokenPayloadBase,
+                client_secret: pending.clientSecret
+            })
+        });
+    }
+
     if (!res.ok) {
+        clearOAuthPending();
         throw new Error('토큰 교환에 실패했습니다');
     }
 
@@ -158,7 +276,7 @@ async function mastodonCompleteAuth(code) {
         avatar: accountInfo.avatar
     });
 
-    sessionStorage.removeItem('oauth_pending');
+    clearOAuthPending();
 
     return pending.instance;
 }
@@ -243,11 +361,11 @@ async function misskeyStartAuth(instance) {
     const session = generateMiAuthSession();
     const callbackUrl = `${location.origin}${location.pathname}`;
 
-    sessionStorage.setItem('oauth_pending', JSON.stringify({
+    setOAuthPending({
         type: 'misskey',
         instance,
         session
-    }));
+    });
 
     const authUrl = new URL(`https://${instance}/miauth/${session}`);
     authUrl.searchParams.set('name', APP_NAME);
@@ -258,9 +376,13 @@ async function misskeyStartAuth(instance) {
 }
 
 async function misskeyCompleteAuth(session) {
-    const pending = JSON.parse(sessionStorage.getItem('oauth_pending'));
+    const pending = getOAuthPending();
     if (!pending || pending.type !== 'misskey') {
         throw new Error('인증 세션을 찾을 수 없습니다');
+    }
+    if (pending.session !== session) {
+        clearOAuthPending();
+        throw new Error('OAuth 세션 검증에 실패했습니다. 다시 로그인해 주세요.');
     }
 
     const res = await fetch(`https://${pending.instance}/api/miauth/${session}/check`, {
@@ -288,7 +410,7 @@ async function misskeyCompleteAuth(session) {
         avatar: data.user.avatarUrl
     });
 
-    sessionStorage.removeItem('oauth_pending');
+    clearOAuthPending();
 
     return pending.instance;
 }
@@ -346,8 +468,7 @@ async function misskeyPost(instance, imageBlob, text, visibility = 'public', alt
 // ============ Unified API ============
 
 async function startAuth(instance) {
-    // Clean instance URL
-    instance = instance.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    instance = normalizeInstance(instance);
 
     const serverType = await detectServerType(instance);
 
@@ -363,8 +484,9 @@ async function handleAuthCallback() {
 
     // Check for Mastodon callback (has 'code' param)
     const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
     if (code) {
-        const instance = await mastodonCompleteAuth(code);
+        const instance = await mastodonCompleteAuth(code, state);
         // Clean URL
         history.replaceState({}, '', location.pathname);
         return { success: true, instance };
@@ -402,5 +524,6 @@ window.FediAuth = {
     startAuth,
     handleAuthCallback,
     postToFediverse,
-    detectServerType
+    detectServerType,
+    clearAccounts
 };
