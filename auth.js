@@ -5,6 +5,8 @@
 
 const STORAGE_KEY = 'inyong_accounts';
 const LEGACY_STORAGE_KEY = 'inyong_accounts_legacy';
+const OAUTH_PENDING_KEY = 'oauth_pending';
+const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000;
 const APP_NAME = '인용 이미지 생성기';
 const APP_WEBSITE = location.origin;
 
@@ -34,6 +36,10 @@ function getAccounts() {
 
 function saveAccounts(accounts) {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+}
+
+function clearAccounts() {
+    sessionStorage.removeItem(STORAGE_KEY);
 }
 
 function addAccount(account) {
@@ -123,6 +129,29 @@ function randomBase64Url(bytes = 32) {
         .replace(/=+$/g, '');
 }
 
+function setOAuthPending(data) {
+    sessionStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
+        ...data,
+        createdAt: Date.now()
+    }));
+}
+
+function getOAuthPending() {
+    const pending = JSON.parse(sessionStorage.getItem(OAUTH_PENDING_KEY));
+    if (!pending || !pending.createdAt) return null;
+
+    if ((Date.now() - pending.createdAt) > OAUTH_PENDING_TTL_MS) {
+        sessionStorage.removeItem(OAUTH_PENDING_KEY);
+        return null;
+    }
+
+    return pending;
+}
+
+function clearOAuthPending() {
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+}
+
 async function sha256Base64Url(input) {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
     const bytes = new Uint8Array(digest);
@@ -164,7 +193,7 @@ async function mastodonStartAuth(instance) {
     const codeChallenge = await sha256Base64Url(codeVerifier);
 
     // Store app info for later
-    sessionStorage.setItem('oauth_pending', JSON.stringify({
+    setOAuthPending({
         type: 'mastodon',
         instance,
         clientId: app.client_id,
@@ -172,7 +201,7 @@ async function mastodonStartAuth(instance) {
         redirectUri,
         state,
         codeVerifier
-    }));
+    });
 
     // Redirect to authorization
     const authUrl = new URL(`https://${instance}/oauth/authorize`);
@@ -188,29 +217,44 @@ async function mastodonStartAuth(instance) {
 }
 
 async function mastodonCompleteAuth(code, state) {
-    const pending = JSON.parse(sessionStorage.getItem('oauth_pending'));
+    const pending = getOAuthPending();
     if (!pending || pending.type !== 'mastodon') {
         throw new Error('인증 세션을 찾을 수 없습니다');
     }
     if (!state || pending.state !== state) {
+        clearOAuthPending();
         throw new Error('OAuth state 검증에 실패했습니다. 다시 로그인해 주세요.');
     }
 
-    const res = await fetch(`https://${pending.instance}/oauth/token`, {
+    // Try public-client PKCE first, then fall back to client_secret for compatibility.
+    const tokenPayloadBase = {
+        client_id: pending.clientId,
+        redirect_uri: pending.redirectUri,
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: pending.codeVerifier,
+        scope: 'read write:media write:statuses'
+    };
+
+    let res = await fetch(`https://${pending.instance}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            client_id: pending.clientId,
-            client_secret: pending.clientSecret,
-            redirect_uri: pending.redirectUri,
-            grant_type: 'authorization_code',
-            code,
-            code_verifier: pending.codeVerifier,
-            scope: 'read write:media write:statuses'
-        })
+        body: JSON.stringify(tokenPayloadBase)
     });
 
+    if (!res.ok && pending.clientSecret) {
+        res = await fetch(`https://${pending.instance}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...tokenPayloadBase,
+                client_secret: pending.clientSecret
+            })
+        });
+    }
+
     if (!res.ok) {
+        clearOAuthPending();
         throw new Error('토큰 교환에 실패했습니다');
     }
 
@@ -232,7 +276,7 @@ async function mastodonCompleteAuth(code, state) {
         avatar: accountInfo.avatar
     });
 
-    sessionStorage.removeItem('oauth_pending');
+    clearOAuthPending();
 
     return pending.instance;
 }
@@ -317,11 +361,11 @@ async function misskeyStartAuth(instance) {
     const session = generateMiAuthSession();
     const callbackUrl = `${location.origin}${location.pathname}`;
 
-    sessionStorage.setItem('oauth_pending', JSON.stringify({
+    setOAuthPending({
         type: 'misskey',
         instance,
         session
-    }));
+    });
 
     const authUrl = new URL(`https://${instance}/miauth/${session}`);
     authUrl.searchParams.set('name', APP_NAME);
@@ -332,9 +376,13 @@ async function misskeyStartAuth(instance) {
 }
 
 async function misskeyCompleteAuth(session) {
-    const pending = JSON.parse(sessionStorage.getItem('oauth_pending'));
+    const pending = getOAuthPending();
     if (!pending || pending.type !== 'misskey') {
         throw new Error('인증 세션을 찾을 수 없습니다');
+    }
+    if (pending.session !== session) {
+        clearOAuthPending();
+        throw new Error('OAuth 세션 검증에 실패했습니다. 다시 로그인해 주세요.');
     }
 
     const res = await fetch(`https://${pending.instance}/api/miauth/${session}/check`, {
@@ -362,7 +410,7 @@ async function misskeyCompleteAuth(session) {
         avatar: data.user.avatarUrl
     });
 
-    sessionStorage.removeItem('oauth_pending');
+    clearOAuthPending();
 
     return pending.instance;
 }
@@ -476,5 +524,6 @@ window.FediAuth = {
     startAuth,
     handleAuthCallback,
     postToFediverse,
-    detectServerType
+    detectServerType,
+    clearAccounts
 };

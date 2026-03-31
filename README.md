@@ -15,9 +15,16 @@ Made with Claude Code
    - **Build output directory**: `.`
 4. 배포 후 발급된 HTTPS 도메인으로 접속합니다.
 
+CLI로 배포하려면:
+
+```bash
+npx wrangler pages deploy .
+```
+
 ### OAuth 사용 시 주의사항
 
 - Mastodon/Misskey OAuth 콜백 URL은 현재 접속한 페이지 주소(`origin + pathname`)를 사용합니다.
 - 배포 도메인에서 처음 로그인하면 세션에 계정 토큰이 저장됩니다.
 - 보안 강화를 위해 액세스 토큰은 `localStorage`가 아닌 `sessionStorage`에만 저장됩니다.
   - 브라우저 탭/세션 종료 후에는 다시 로그인해야 합니다.
+- 배포 루트의 `_headers` 파일로 CSP/보안 헤더가 적용됩니다.
